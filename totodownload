@@ -82,26 +82,39 @@
         updateState({status: message});
     }
 
-    // Data collection
-    function collectData() {
-        try {
-            const drawId = document.querySelector('.info .float-end').textContent.match(/\d+/)[0];
-            const date = window.location.pathname.split('/').pop();
+function collectData() {
+    try {
+        // Get draw ID from the element with title="Draw No."
+        const drawIdElement = document.querySelector('div.info p[title="Draw No."]');
+        const drawId = drawIdElement.textContent.trim();
 
-            const mainNumbers = Array.from(
-                document.querySelectorAll('table.lotto tbody tr:first-child td:not(.hi) span')
-            ).map(span => span.textContent.trim().padStart(2, '0'));
+        // Get date from URL
+        const date = window.location.pathname.split('/').pop();
 
-            const additional = document.querySelector('table.lotto tbody tr:first-child td.hi span')
-                .textContent.trim().padStart(2, '0');
+        // Get main numbers (first 6 cells in the first row)
+        const mainNumbers = Array.from(
+            document.querySelectorAll('table.lotto tbody tr:first-child td:nth-child(-n+6) span')
+        ).map(span => {
+            // Extract number and pad with leading zero if necessary
+            const number = span.textContent.trim();
+            return number.length === 1 ? `0${number}` : number;
+        });
 
-            return { drawId, date, numbers: mainNumbers, additional };
-        } catch (error) {
-            console.error('Collection error:', error);
-            return null;
-        }
+        // Get additional number (7th cell in the first row)
+        const additionalElement = document.querySelector('table.lotto tbody tr:first-child td:nth-child(7) span');
+        const additional = additionalElement.textContent.trim().padStart(2, '0');
+
+        return { 
+            drawId, 
+            date, 
+            numbers: mainNumbers, 
+            additional 
+        };
+    } catch (error) {
+        console.error('Collection error:', error);
+        return null;
     }
-
+}
     // Navigation
     function getNextDate() {
         const nextLink = document.querySelector('.pagination .page-item:last-child .page-link');
@@ -113,7 +126,7 @@
     function triggerDownload(content, filename) {
         const blob = new Blob([content], {type: 'text/csv;charset=utf-8'});
         const url = URL.createObjectURL(blob);
-
+        
         // Use hidden iframe for download
         const iframe = document.getElementById('downloadFrame');
         iframe.src = url;
@@ -136,11 +149,11 @@
         // Collect current page data
         const currentDate = window.location.pathname.split('/').pop();
         const data = collectData();
-
+        
         if (data) {
             state = updateState({
-                results: state.results.some(r => r.date === data.date)
-                    ? state.results
+                results: state.results.some(r => r.date === data.date) 
+                    ? state.results 
                     : [...state.results, data]
             });
         }
@@ -148,7 +161,7 @@
         // Check if we've reached/passed the end date
         const currentDateObj = new Date(currentDate);
         const endDateObj = new Date(state.endDate);
-
+        
         if (currentDateObj >= endDateObj) {
             await finishExport();
             return;
@@ -176,9 +189,9 @@
     async function finishExport() {
         let state = getState();
         updateStatus('Finalizing export...');
-
+        
         // Sort results by date
-        const sortedResults = state.results.sort((a, b) =>
+        const sortedResults = state.results.sort((a, b) => 
             new Date(a.date) - new Date(b.date)
         );
 
