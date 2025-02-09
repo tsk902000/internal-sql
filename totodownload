@@ -1,0 +1,246 @@
+// ==UserScript==
+// @name         Toto Date Range Exporter (Guaranteed Download)
+// @namespace    http://tampermonkey.net/
+// @version      4.3
+// @description  Ensures CSV download with direct user interaction
+// @author       Your Name
+// @match        https://sg.gidapp.com/lottery/sp/toto/en/*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_registerMenuCommand
+// @grant        GM_download
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    const STATE_KEY = 'TotoExportState_Final_v3';
+    const DELAY = 3000;
+
+    // Create control panel with persistent values
+    function createPanel() {
+        const state = GM_getValue(STATE_KEY, {
+            active: false,
+            startDate: null,
+            endDate: null,
+            results: [],
+            status: 'Ready'
+        });
+
+        const panel = document.createElement('div');
+        panel.id = 'exportPanel';
+        panel.innerHTML = `
+            <style>
+                #exportPanel {
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: white;
+                    padding: 20px;
+                    border: 1px solid #ccc;
+                    z-index: 9999;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    font-family: Arial, sans-serif;
+                }
+                #exportPanel label { display: block; margin-bottom: 10px; }
+                #exportPanel input { margin-left: 5px; }
+                #exportPanel button { margin: 5px; padding: 5px 10px; cursor: pointer; }
+                #status { margin-top: 10px; color: #666; font-size: 0.9em; }
+                #downloadFrame { display: none; }
+            </style>
+            <h3>Toto Exporter</h3>
+            <label>Start Date: <input type="date" id="startDate" value="${state.startDate || ''}"></label>
+            <label>End Date: <input type="date" id="endDate" value="${state.endDate || ''}"></label>
+            <button id="startExport">${state.active ? 'Resume' : 'Start'}</button>
+            <button id="cancelExport">Cancel</button>
+            <div id="status">Status: ${state.status}</div>
+            <iframe id="downloadFrame"></iframe>
+        `;
+        document.body.appendChild(panel);
+    }
+
+    // State management
+    function getState() {
+        return GM_getValue(STATE_KEY, {
+            active: false,
+            startDate: null,
+            endDate: null,
+            results: [],
+            status: 'Ready'
+        });
+    }
+
+    function updateState(newState) {
+        const currentState = getState();
+        const mergedState = {...currentState, ...newState};
+        GM_setValue(STATE_KEY, mergedState);
+        return mergedState;
+    }
+
+    function updateStatus(message) {
+        document.getElementById('status').textContent = `Status: ${message}`;
+        updateState({status: message});
+    }
+
+    // Data collection
+    function collectData() {
+        try {
+            const drawId = document.querySelector('.info .float-end').textContent.match(/\d+/)[0];
+            const date = window.location.pathname.split('/').pop();
+
+            const mainNumbers = Array.from(
+                document.querySelectorAll('table.lotto tbody tr:first-child td:not(.hi) span')
+            ).map(span => span.textContent.trim().padStart(2, '0'));
+
+            const additional = document.querySelector('table.lotto tbody tr:first-child td.hi span')
+                .textContent.trim().padStart(2, '0');
+
+            return { drawId, date, numbers: mainNumbers, additional };
+        } catch (error) {
+            console.error('Collection error:', error);
+            return null;
+        }
+    }
+
+    // Navigation
+    function getNextDate() {
+        const nextLink = document.querySelector('.pagination .page-item:last-child .page-link');
+        if (!nextLink || nextLink.classList.contains('disabled')) return null;
+        return new URL(nextLink.href).pathname.split('/').pop();
+    }
+
+    // Download trigger
+    function triggerDownload(content, filename) {
+        const blob = new Blob([content], {type: 'text/csv;charset=utf-8'});
+        const url = URL.createObjectURL(blob);
+
+        // Use hidden iframe for download
+        const iframe = document.getElementById('downloadFrame');
+        iframe.src = url;
+        iframe.onload = () => {
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        };
+    }
+
+    // Main process
+    async function processPage() {
+        let state = getState();
+        if (!state.active) return;
+
+        // Collect current page data
+        const currentDate = window.location.pathname.split('/').pop();
+        const data = collectData();
+
+        if (data) {
+            state = updateState({
+                results: state.results.some(r => r.date === data.date)
+                    ? state.results
+                    : [...state.results, data]
+            });
+        }
+
+        // Check if we've reached/passed the end date
+        const currentDateObj = new Date(currentDate);
+        const endDateObj = new Date(state.endDate);
+
+        if (currentDateObj >= endDateObj) {
+            await finishExport();
+            return;
+        }
+
+        // Get next date
+        const nextDate = getNextDate();
+        if (!nextDate) {
+            await finishExport();
+            return;
+        }
+
+        // Validate next date
+        const nextDateObj = new Date(nextDate);
+        if (nextDateObj > endDateObj) {
+            await finishExport();
+            return;
+        }
+
+        // Navigate to next date
+        updateStatus(`Moving to ${nextDate}`);
+        window.location.href = `https://sg.gidapp.com/lottery/sp/toto/en/${nextDate}`;
+    }
+
+    async function finishExport() {
+        let state = getState();
+        updateStatus('Finalizing export...');
+
+        // Sort results by date
+        const sortedResults = state.results.sort((a, b) =>
+            new Date(a.date) - new Date(b.date)
+        );
+
+        // Create CSV
+        const csvContent = [
+            ['Draw ID', 'Date', 'Num1', 'Num2', 'Num3', 'Num4', 'Num5', 'Num6', 'Additional'],
+            ...sortedResults.map(r => [r.drawId, r.date, ...r.numbers, r.additional])
+        ].join('\n');
+
+        // Trigger download using two methods
+		triggerDownload(csvContent, `Toto_${state.startDate}_to_${state.endDate}.csv`);
+
+        // Reset state
+        updateState({
+            active: false,
+            results: [],
+            status: 'Ready'
+        });
+    }
+
+    // Initialization
+    createPanel();
+
+    document.getElementById('startExport').addEventListener('click', () => {
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+
+        if (!startDate || !endDate || startDate > endDate) {
+            updateStatus('Invalid dates');
+            return;
+        }
+
+        updateState({
+            active: true,
+            startDate,
+            endDate,
+            results: [],
+            status: 'Starting'
+        });
+
+        if (!window.location.href.includes(startDate)) {
+            window.location.href = `https://sg.gidapp.com/lottery/sp/toto/en/${startDate}`;
+        } else {
+            setTimeout(processPage, DELAY);
+        }
+    });
+
+    document.getElementById('cancelExport').addEventListener('click', () => {
+        updateState({active: false, status: 'Cancelled'});
+    });
+
+    // Auto-resume logic with end date check
+    const state = getState();
+    if (state.active) {
+        const currentDate = window.location.pathname.split('/').pop();
+        const currentDateObj = new Date(currentDate);
+        const endDateObj = new Date(state.endDate);
+
+        if (currentDateObj > endDateObj) {
+            finishExport();
+        } else if (currentDateObj >= new Date(state.startDate)) {
+            setTimeout(processPage, DELAY);
+        }
+    }
+})();
