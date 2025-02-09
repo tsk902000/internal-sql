@@ -9,3 +9,4 @@ Select * from calculate_draw_repetitions();
 Select * from find_draws_with_matches(1);
 Select * from analyze_number_match_patterns(1);
 SELECT * FROM analyze_hot_cold_numbers(12);
+Select * from get_number_analysis_summary();
