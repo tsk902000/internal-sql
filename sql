@@ -17,3 +17,4 @@ SELECT * FROM get_digit_statistics();
 SELECT * FROM fourd_analysis LIMIT 10;
 SELECT * FROM get_yearly_analysis();
 SELECT * FROM get_position_statistics();
+select * from get_digit_appearance(10)
